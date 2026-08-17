@@ -1,0 +1,8 @@
+{
+  "name": "orient",
+  "version": "0.1.0",
+  "description": "Hands a fresh session the three things git knows and the session is not told: an in-progress git operation, position against the fork point, and which files moved since.",
+  "author": {
+    "name": "Hendrik Kühnel"
+  }
+}

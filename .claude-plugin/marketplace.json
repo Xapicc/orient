@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "orient",
+  "description": "Single-plugin marketplace so orient can be installed globally rather than passed as --plugin-dir on every invocation.",
+  "owner": {
+    "name": "Hendrik Kühnel"
+  },
+  "plugins": [
+    {
+      "name": "orient",
+      "description": "Hands a fresh session what git already knows and the session is not told: an in-progress git operation, position against the fork point, and which files moved since.",
+      "category": "development",
+      "source": "./"
+    }
+  ]
+}
