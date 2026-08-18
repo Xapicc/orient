@@ -116,15 +116,28 @@ o=$(run "$R")
 # running under acceptEdits will act on that reading.
 check "says how many, not just what fits" "$o" "files, the 12 largest"
 
-echo "nothing to report costs nothing"
+echo "a branch level with its base still reports"
 Q=$WORK/quiet
 mkdir -p "$Q" && git -C "$Q" init -q -b main
 echo one >"$Q/a.txt" && git -C "$Q" add -A && git -C "$Q" commit -qm one
 o=$(run "$Q")
-# On a checkout level with its base there is no fact here the session does not
-# already have, and a payload of pure boilerplate costs resident tokens to
-# convey nothing.
-check "stays silent on a clean checkout" "${o:-EMPTY}" "EMPTY"
+# This asserted silence until a real run proved it wrong. A branch cut fresh
+# from its base is 0 ahead / 0 behind by construction, which is every isolated
+# run's first cycle — so "level means say nothing" made the one case that
+# always happens the one case that always said nothing. The base ref and the
+# fork point are not in the CLI's own context at any position, and they are
+# what a later `git diff <base>...HEAD` needs.
+check "names the base and the fork point when level" "$o" "Level with main at"
+refute "still does not restate the branch it is on" "$o" "On main"
+
+echo "linked worktree"
+# Invisible from inside the tree and absent from the CLI's context: the branch
+# is checked out here and nowhere else, and the repository everyone else means
+# by that name is somewhere else on disk.
+git -C "$R" worktree add -q -b wt-probe "$WORK/wt" >/dev/null 2>&1
+o=$(run "$WORK/wt")
+check "says it is a linked worktree" "$o" "linked worktree of"
+check "names the checkout it belongs to" "$o" "$R"
 
 echo "resume is not re-announced"
 o=$(printf '{"session_id":"x","source":"resume","cwd":"%s"}' "$R" | CLAUDE_PROJECT_DIR="$R" sh "$HOOK")
