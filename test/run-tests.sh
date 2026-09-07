@@ -58,11 +58,23 @@ refute() {
 # directory can put the literal text `</orient>` into the payload. Counting the
 # tags and pinning where they sit is the only thing that catches a forged fence;
 # every escaping fix in the hook regresses silently without it.
+count_tag() {
+	printf '%s\n' "$2" | awk -v tag="$1" '
+		{
+			s = $0
+			while ((i = index(s, tag)) > 0) {
+				n++
+				s = substr(s, i + length(tag))
+			}
+		}
+		END { print n + 0 }'
+}
+
 fenced() {
 	name=$1
 	got=$2
-	opens=$(printf '%s\n' "$got" | grep -o '<orient>' | wc -l | tr -d ' ')
-	closes=$(printf '%s\n' "$got" | grep -o '</orient>' | wc -l | tr -d ' ')
+	opens=$(count_tag '<orient>' "$got")
+	closes=$(count_tag '</orient>' "$got")
 	first=$(printf '%s\n' "$got" | head -1)
 	last=$(printf '%s\n' "$got" | tail -1)
 	if [ "$opens" -eq 1 ] && [ "$closes" -eq 1 ] &&
