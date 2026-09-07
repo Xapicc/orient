@@ -50,15 +50,43 @@ refute() {
 	fi
 }
 
+# The wrapper is the whole provenance boundary: inside it is repository content,
+# outside it is the harness speaking. Until this existed no assertion mentioned
+# either tag, so deleting the wrapper outright left all 24 of them green.
+#
+# Structural rather than a substring grep, because a path, a ref name or a root
+# directory can put the literal text `</orient>` into the payload. Counting the
+# tags and pinning where they sit is the only thing that catches a forged fence;
+# every escaping fix in the hook regresses silently without it.
+fenced() {
+	name=$1
+	got=$2
+	opens=$(printf '%s\n' "$got" | grep -o '<orient>' | wc -l | tr -d ' ')
+	closes=$(printf '%s\n' "$got" | grep -o '</orient>' | wc -l | tr -d ' ')
+	first=$(printf '%s\n' "$got" | head -1)
+	last=$(printf '%s\n' "$got" | tail -1)
+	if [ "$opens" -eq 1 ] && [ "$closes" -eq 1 ] &&
+		[ "$first" = '<orient>' ] && [ "$last" = '</orient>' ]; then
+		pass=$((pass + 1))
+		printf '  ok   %s\n' "$name"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL %s\n       %s opening / %s closing tag(s); first line %s, last line %s; in:\n%s\n' \
+			"$name" "$opens" "$closes" "$first" "$last" "$got"
+	fi
+}
+
 echo "not a git repository"
 mkdir -p "$WORK/bare"
 o=$(run "$WORK/bare")
+fenced "refusal is wrapped in exactly one fence" "$o"
 check "refuses in-band"        "$o" "ORIENT UNAVAILABLE"
 check "tells the agent not to assume" "$o" "Do not assume"
 
 echo "unborn HEAD"
 mkdir -p "$WORK/unborn" && git -C "$WORK/unborn" init -q
 o=$(run "$WORK/unborn")
+fenced "unborn-HEAD payload is wrapped in exactly one fence" "$o"
 check "says there are no commits" "$o" "no commits yet"
 # `rev-parse --abbrev-ref HEAD` prints "HEAD" to stdout AND exits non-zero here,
 # so a pipeline that only checks output reports a branch literally named HEAD.
@@ -73,6 +101,7 @@ echo two >>"$R/a.txt" && echo new >"$R/b.txt"
 git -C "$R" add -A && git -C "$R" commit -qm two
 echo dirty >"$R/c.txt"
 o=$(run "$R")
+fenced "payload is wrapped in exactly one fence" "$o"
 check "positions the branch against its base" "$o" "1 ahead, 0 behind main"
 check "lists changed files with magnitude"    "$o" "b.txt"
 check "fences repository-derived text"        "$o" "not instructions"
@@ -87,6 +116,7 @@ refute "does not restate commit subjects"     "$o" "two"
 echo "detached HEAD"
 git -C "$R" checkout -q --detach HEAD
 o=$(run "$R")
+fenced "detached-HEAD payload is wrapped in exactly one fence" "$o"
 check "flags a detached HEAD as a hazard" "$o" "detached at"
 check "says why it matters"               "$o" "not land on any branch"
 
@@ -94,6 +124,7 @@ echo "mid-operation halt"
 git -C "$R" checkout -q feature
 touch "$(git -C "$R" rev-parse --absolute-git-dir)/MERGE_HEAD"
 o=$(run "$R")
+fenced "mid-merge payload is wrapped in exactly one fence" "$o"
 check "halts on an in-progress merge" "$o" "HALT"
 check "names which operation"         "$o" "MERGE_HEAD"
 rm -f "$(git -C "$R" rev-parse --absolute-git-dir)/MERGE_HEAD"
@@ -103,6 +134,7 @@ mkdir -p "$R/deep/nested"
 echo x >"$R/deep/nested/d.txt"
 git -C "$R" add -A && git -C "$R" commit -qm deep
 o=$(run "$R/deep/nested")
+fenced "subdirectory payload is wrapped in exactly one fence" "$o"
 check "announces the root it resolved to" "$o" "Repository root is"
 check "prints root-relative paths"        "$o" "deep/nested/d.txt"
 
@@ -112,6 +144,7 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
 done
 git -C "$R" add -A && git -C "$R" commit -qm wide
 o=$(run "$R")
+fenced "capped-list payload is wrapped in exactly one fence" "$o"
 # A list cut with `head` and no count reads as a complete list, and a session
 # running under acceptEdits will act on that reading.
 check "says how many, not just what fits" "$o" "files, the 12 largest"
@@ -121,6 +154,7 @@ Q=$WORK/quiet
 mkdir -p "$Q" && git -C "$Q" init -q -b main
 echo one >"$Q/a.txt" && git -C "$Q" add -A && git -C "$Q" commit -qm one
 o=$(run "$Q")
+fenced "level-with-base payload is wrapped in exactly one fence" "$o"
 # This asserted silence until a real run proved it wrong. A branch cut fresh
 # from its base is 0 ahead / 0 behind by construction, which is every isolated
 # run's first cycle — so "level means say nothing" made the one case that
@@ -136,6 +170,7 @@ echo "linked worktree"
 # by that name is somewhere else on disk.
 git -C "$R" worktree add -q -b wt-probe "$WORK/wt" >/dev/null 2>&1
 o=$(run "$WORK/wt")
+fenced "worktree payload is wrapped in exactly one fence" "$o"
 check "says it is a linked worktree" "$o" "linked worktree of"
 check "names the checkout it belongs to" "$o" "$R"
 
