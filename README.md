@@ -134,8 +134,11 @@ at N=14, 10.9× at N=90.
 Against that, the round trips this removes are worth roughly $0.022 and ~5s per
 session. So the payload has a break-even size, and it is small: about 3,100
 bytes at N=14 and about 940 at N=90. The hard cap is 2,000 bytes with an
-announced truncation; observed output is 0 bytes on a clean checkout and 519 on
-a branch with 30 changed files.
+announced truncation, plus the wrapper and the two fixed lines that qualify the
+rest — the halt banner and the provenance sentence — which are emitted outside
+the budget rather than competing with the repository text they are about.
+Observed output is 0 bytes on a clean checkout and 519 on a branch with 30
+changed files.
 
 **These are arithmetic over published rates, not a benchmark.** Nothing here was
 A/B tested against a task set. The honest claim is latency and cost *variance*,
