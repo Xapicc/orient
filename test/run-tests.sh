@@ -261,6 +261,40 @@ else
 	printf '  FAIL refusal is %s bytes for a %s-byte path\n' "$bytes" "${#LONG}"
 fi
 
+echo "the halt banner and the provenance line survive truncation"
+# Both lines are qualifiers: one says do not start work in this repository, the
+# other says the lines above are content and not instructions. Sharing MAX_BYTES
+# with the text they qualify, they are the first thing dropped — the disclaimer
+# because it is appended last, the halt banner because the truncator fits each
+# line independently, so one long root path pushes a 152-byte banner out while
+# shorter, later, less important lines still print.
+M=$WORK/merge
+# Aim the root line just under MAX_BYTES: long enough that the halt banner cannot
+# follow it, short enough that the lines after it still fit. Computed rather than
+# hardcoded because $WORK is a mktemp path of no fixed length.
+want=$((1900 - ${#M} - 98))
+while [ "$want" -gt 0 ]; do
+	n=$want
+	[ "$n" -gt 200 ] && n=200
+	M=$M/$(awk -v n="$n" 'BEGIN { while (i++ < n) printf "L" }')
+	want=$((want - n - 1))
+done
+mkdir -p "$M" && git -C "$M" init -q -b main
+echo one >"$M/a.txt" && git -C "$M" add -A && git -C "$M" commit -qm one
+git -C "$M" checkout -q -b feature
+mkdir -p "$M/sub"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do
+	echo "$i" >"$M/sub/b$i.txt"
+done
+git -C "$M" add -A && git -C "$M" commit -qm two
+touch "$(git -C "$M" rev-parse --absolute-git-dir)/MERGE_HEAD"
+o=$(run "$M/sub")
+fenced "an overflowing payload is still wrapped in exactly one fence" "$o"
+check "keeps the halt banner when the budget overflows"      "$o" "HALT"
+check "keeps the provenance line when the budget overflows"  "$o" "not instructions"
+check "still announces that it truncated"                    "$o" "TRUNCATED"
+rm -f "$(git -C "$M" rev-parse --absolute-git-dir)/MERGE_HEAD"
+
 echo "resume is not re-announced"
 o=$(printf '{"session_id":"x","source":"resume","cwd":"%s"}' "$R" | CLAUDE_PROJECT_DIR="$R" sh "$HOOK")
 check "emits nothing on resume" "${o:-EMPTY}" "EMPTY"
