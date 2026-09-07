@@ -45,6 +45,9 @@ export GIT_OPTIONAL_LOCKS
 # is the mechanism, not a tidiness preference.
 MAX_BYTES=2000
 MAX_CHANGED=12
+# The refusal path exits before the byte cap above is applied, and the only value
+# it interpolates is a filesystem path, so it carries its own bound.
+MAX_DETAIL=200
 
 # Sections are collected separately rather than appended as they are computed,
 # so that the assembly step can tell "nothing to report" from "something to
@@ -70,8 +73,42 @@ clean() {
 	tr -d '\000-\010\013\014\016-\037\177'
 }
 
+# `clean()` runs over the assembled body and has to preserve the newlines that
+# structure it — which is exactly what a hostile value exploits. A directory
+# named with an embedded newline followed by `</orient>` ends its line early and
+# puts a closing tag alone at column 0; `<` and `>` are legal in both paths and
+# refnames, so a file `</orient>` needs no trickery at all. Escaping can
+# therefore only happen while a value is still a value, before it becomes a line.
+#
+# Every string that enters the payload from the repository or the environment
+# goes through one of these two. Angle brackets become entities rather than being
+# deleted: a deleted character makes the hook misreport what is in the repository,
+# which is the one failure this class of tool cannot afford. `&` is escaped first
+# so the encoding stays unambiguous.
+#
+# The line-wise form, for a stream that is already one record per line.
+escape_lines() {
+	tr '\011\013\014\015' '    ' |
+		tr -d '\000-\010\013-\037\177' |
+		sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+# The single-value form. A value belongs on one line, so a newline inside it
+# folds to a space rather than splitting the payload.
+escape_value() {
+	printf '%s' "$1" | tr '\n' ' ' | escape_lines
+}
+
+# The refusal is taken in the most ordinary failure there is — a session started
+# outside a git repository — and it interpolates `$CLAUDE_PROJECT_DIR`. It exits
+# long before the main path's sanitiser and byte cap exist, so it applies both
+# itself. A refusal is the moment the reader is most dependent on the fence
+# holding: it is being told to assume nothing.
 unavailable() {
-	printf '<orient>\nORIENT UNAVAILABLE: %s\nNothing was precomputed. Do not assume the repository is clean or idle.\n</orient>\n' "$1"
+	detail=$(escape_value "$1")
+	short=$(printf '%s' "$detail" | cut -c "1-$MAX_DETAIL")
+	[ "$short" = "$detail" ] || short="$short [truncated]"
+	printf '<orient>\nORIENT UNAVAILABLE: %s\nNothing was precomputed. Do not assume the repository is clean or idle.\n</orient>\n' "$short"
 	exit 0
 }
 
@@ -124,7 +161,7 @@ g() { git -C "$root" "$@" 2>/dev/null; }
 # toplevel comes back through /private/var while the session's cwd is /var, so a
 # string comparison calls every temp-dir repository a subdirectory session.
 if [ -n "$(git -C "$start_dir" rev-parse --show-prefix 2>/dev/null)" ]; then
-	sec_root="Repository root is $root (this session started in a subdirectory; paths below are relative to the root)."
+	sec_root="Repository root is $(escape_value "$root") (this session started in a subdirectory; paths below are relative to the root)."
 fi
 
 git_dir=$(g rev-parse --absolute-git-dir) || git_dir=""
@@ -149,7 +186,7 @@ if [ -n "$git_dir" ]; then
 		common=$(cd "$common" 2>/dev/null && pwd -P) || common=""
 	fi
 	if [ -n "$common" ] && [ "$common" != "$git_dir" ]; then
-		sec_worktree="This is a linked worktree of $(dirname "$common"); the branch below is checked out here and nowhere else."
+		sec_worktree="This is a linked worktree of $(escape_value "$(dirname "$common")"); the branch below is checked out here and nowhere else."
 		repo_text=1
 	fi
 fi
@@ -207,6 +244,12 @@ else
 		resolved=$(g symbolic-ref -q --short refs/remotes/origin/HEAD) || resolved=""
 		[ -n "$resolved" ] && base_name=$resolved
 	fi
+	# Past this point `base_name` is display text and `base_ref` is the thing git
+	# is asked about. They are separate because a refname is repository content:
+	# `git check-ref-format` accepts `refs/heads/</orient>`, and `git clone` takes
+	# the default branch from the remote's HEAD, so a clone of a stranger's
+	# repository names its own base ref here.
+	base_name=$(escape_value "$base_name")
 
 	fork=""
 	[ -n "$base_ref" ] && { fork=$(g merge-base "$base_ref" HEAD) || fork=""; }
@@ -269,7 +312,8 @@ else
 				head_line="Changed since the fork point — $changed_n file(s):"
 			fi
 			sec_changed="$head_line
-$(printf '%s\n' "$changed" | head -n "$MAX_CHANGED" | awk -F'\t' '{printf "  %-12s %s\n", $2, $3}')"
+$(printf '%s\n' "$changed" | head -n "$MAX_CHANGED" |
+					awk -F'\t' '{printf "  %-12s %s\n", $2, $3}' | escape_lines)"
 			repo_text=1
 		fi
 	fi
