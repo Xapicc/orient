@@ -230,7 +230,9 @@ else
 	[ "$(g rev-parse --is-shallow-repository)" = "true" ] &&
 		sec_shallow="This is a shallow clone; history-derived answers above are cut off at the graft point."
 
+	detached=0
 	if ! g symbolic-ref --quiet --short HEAD >/dev/null; then
+		detached=1
 		sec_position="HEAD is detached at $(g rev-parse --short HEAD) — commits made here will not land on any branch."
 	fi
 
@@ -315,8 +317,15 @@ else
 		# is 0/0 by construction, so the one case that always happens was the
 		# one case that always said nothing.
 		if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
+			# The trailing clause is about a branch, and on a detached HEAD the
+			# sentence directly above has just said there is none — two adjacent
+			# statements, one of them false. Only the clause goes: the base ref and
+			# the fork point are the whole reason this case reports at all, and a
+			# detached HEAD needs them as much as a branch does.
+			level="Level with $base_name at $(g rev-parse --short "$fork")"
+			[ "$detached" -eq 1 ] || level="$level — nothing on this branch yet"
 			sec_position="${sec_position}${sec_position:+
-}Level with $base_name at $(g rev-parse --short "$fork") — nothing on this branch yet."
+}$level."
 		else
 			sec_position="${sec_position}${sec_position:+
 }$ahead ahead, $behind behind $base_name (fork point $(g rev-parse --short "$fork"))."

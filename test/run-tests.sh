@@ -132,6 +132,22 @@ fenced "detached-HEAD payload is wrapped in exactly one fence" "$o"
 check "flags a detached HEAD as a hazard" "$o" "detached at"
 check "says why it matters"               "$o" "not land on any branch"
 
+echo "a detached HEAD level with its base does not claim a branch"
+# Two independent sections write the position line and both fire here: one says
+# commits will not land on any branch, and the next says "nothing on this branch
+# yet" about a repository that has a commit. The fixture above is 1 ahead of its
+# base, so only a detached HEAD *level* with the base reaches the second
+# sentence. The 0/0 case itself stays — see the level-with-base block below.
+DT=$WORK/detached-level
+mkdir -p "$DT" && git -C "$DT" init -q -b main
+echo a >"$DT/a.txt" && git -C "$DT" add -A && git -C "$DT" commit -qm one
+git -C "$DT" checkout -q --detach HEAD
+o=$(run "$DT")
+fenced "the detached-level payload is wrapped in exactly one fence" "$o"
+check "still flags the detachment"              "$o" "detached at"
+check "still names the base and the fork point" "$o" "Level with main at"
+refute "does not then speak of this branch"     "$o" "this branch"
+
 echo "mid-operation halt"
 git -C "$R" checkout -q feature
 touch "$(git -C "$R" rev-parse --absolute-git-dir)/MERGE_HEAD"
@@ -223,7 +239,9 @@ fenced "level-with-base payload is wrapped in exactly one fence" "$o"
 # always happens the one case that always said nothing. The base ref and the
 # fork point are not in the CLI's own context at any position, and they are
 # what a later `git diff <base>...HEAD` needs.
-check "names the base and the fork point when level" "$o" "Level with main at"
+# The trailing clause is what the detached-HEAD fix makes conditional, so pin it
+# here: on a branch it must still be said.
+check "names the base and the fork point when level" "$o" "Level with main at .* — nothing on this branch yet"
 refute "still does not restate the branch it is on" "$o" "On main"
 
 echo "a merge-base that could not answer is not a history claim"
