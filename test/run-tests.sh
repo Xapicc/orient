@@ -307,6 +307,45 @@ check "keeps the provenance line when the budget overflows"  "$o" "not instructi
 check "still announces that it truncated"                    "$o" "TRUNCATED"
 rm -f "$(git -C "$M" rev-parse --absolute-git-dir)/MERGE_HEAD"
 
+echo "truncation cuts a prefix, not the middle"
+# The truncator fits each line independently. Skipping an over-long line and
+# carrying on left every shorter line after it in place, so the list was not a
+# prefix — an interior entry vanished with no gap, under a notice that says the
+# loss was at the tail. A path is repository content, so the repository chooses
+# which entry disappears. Twelve files, the 7th-largest under a ~1.8 kB path.
+P=$WORK/prefix
+mkdir -p "$P" && git -C "$P" init -q -b main
+echo base >"$P/base.txt" && git -C "$P" add -A && git -C "$P" commit -qm base
+git -C "$P" checkout -q -b feature
+deep=$(awk 'BEGIN { while (n++ < 180) printf "d" }')
+deep="$deep/$deep/$deep/$deep/$deep/$deep/$deep/$deep/$deep/$deep"
+i=1
+while [ "$i" -le 12 ]; do
+	n=$(printf '%02d' "$i")
+	if [ "$i" -eq 7 ]; then
+		mkdir -p "$P/$deep" && seq 1 $((25 - i)) >"$P/$deep/file$n.txt"
+	else
+		seq 1 $((25 - i)) >"$P/file$n.txt"
+	fi
+	i=$((i + 1))
+done
+git -C "$P" add -A && git -C "$P" commit -qm wide
+o=$(run "$P")
+fenced "a truncated payload is still wrapped in exactly one fence" "$o"
+# file01 is the largest and file12 the smallest, so the sorted list is already in
+# filename order and a prefix of it is 01, 02, 03… with nothing skipped.
+listed=$(printf '%s\n' "$o" | sed -n 's/.*file\([0-9][0-9]\)\.txt$/\1/p')
+want=$(printf '%s\n' "$listed" | awk '{ printf "%02d\n", NR }')
+if [ "$listed" = "$want" ]; then
+	pass=$((pass + 1))
+	printf '  ok   the listed files are a prefix, with nothing missing from the middle\n'
+else
+	fail=$((fail + 1))
+	printf '  FAIL listed %s, wanted the prefix %s\n' "$(echo $listed)" "$(echo $want)"
+fi
+# Six lines are lost: the one that did not fit, and the five it cut short.
+check "counts what it actually dropped" "$o" "TRUNCATED: 6 further line(s)"
+
 echo "resume is not re-announced"
 o=$(printf '{"session_id":"x","source":"resume","cwd":"%s"}' "$R" | CLAUDE_PROJECT_DIR="$R" sh "$HOOK")
 check "emits nothing on resume" "${o:-EMPTY}" "EMPTY"

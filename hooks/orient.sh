@@ -340,11 +340,18 @@ payload=""
 if [ -n "$body" ] || [ -n "$sec_halt" ]; then
 	# Truncation is line-wise and announced. Cutting mid-payload without saying
 	# so would leave the agent holding a list it believes is whole.
+	#
+	# The first line that does not fit ends the cut rather than being skipped
+	# over. Fitting each line independently leaves an output that is not a prefix:
+	# one long path drops an interior entry while every shorter line after it
+	# still prints, so the list closes over the gap while the notice below calls
+	# the loss "further". A path is repository content, so that would let the
+	# repository choose which of its own entries disappears silently.
 	body=$(
 		printf '%s' "$body" | clean | awk -v max="$MAX_BYTES" '
 			{
 				len = length($0) + 1
-				if (bytes + len > max) { dropped++; next }
+				if (cut || bytes + len > max) { cut = 1; dropped++; next }
 				bytes += len
 				print
 			}
