@@ -9,6 +9,10 @@ written into the repository you are working in.
 Install it once at user scope and every repository you open afterwards starts
 warm, including ones you cloned five minutes ago and do not own.
 
+Needs git 2.15 or newer: `--is-shallow-repository` sets that floor,
+`--absolute-git-dir` needs 2.13 and `--git-common-dir` 2.5. On anything older
+the hook refuses in-band rather than describing a repository it could not read.
+
 ## Install
 
 The repository is its own single-plugin marketplace, so installing it is two
@@ -152,6 +156,7 @@ silently shrinks reads to the agent as a complete answer.
 | situation | behaviour |
 |---|---|
 | not a git repo, or git absent | `ORIENT UNAVAILABLE`, naming the cause, plus "do not assume the repository is clean or idle" |
+| git older than 2.15 | `ORIENT UNAVAILABLE`, naming the `rev-parse` flag that failed — never a payload with the halt section quietly missing |
 | no commits yet | says so; never reports a branch named `HEAD` |
 | detached HEAD | says so, and that commits will not land on a branch |
 | shallow clone | says history-derived answers are cut off |

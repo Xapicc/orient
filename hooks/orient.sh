@@ -164,7 +164,16 @@ if [ -n "$(git -C "$start_dir" rev-parse --show-prefix 2>/dev/null)" ]; then
 	sec_root="Repository root is $(escape_value "$root") (this session started in a subdirectory; paths below are relative to the root)."
 fi
 
+# Three things hang off this one flag: the halt section, the linked-worktree
+# line and the delivery receipt. Emptied on failure they disappear together —
+# no refusal, no stderr, exit 0 — and a repository sitting mid-merge is then
+# described as an ordinary branch, which is the one state worth interrupting
+# for. `--absolute-git-dir` arrived in git 2.13 and `--is-shallow-repository` in
+# 2.15, so an older git degrades exactly this way; 2.15 is the stated floor and
+# this is where the script notices it is standing below it.
 git_dir=$(g rev-parse --absolute-git-dir) || git_dir=""
+[ -n "$git_dir" ] ||
+	unavailable "cannot resolve the git directory of $root (rev-parse --absolute-git-dir failed; orient needs git 2.15 or newer)"
 
 # A linked worktree, and which checkout it belongs to.
 #
@@ -175,20 +184,18 @@ git_dir=$(g rev-parse --absolute-git-dir) || git_dir=""
 # disk. Nothing in the CLI's own context says so. `--git-common-dir` can come
 # back relative, which is the trap — compared unresolved it never matches and
 # every ordinary checkout reports itself as a worktree.
-if [ -n "$git_dir" ]; then
-	common=$(g rev-parse --git-common-dir) || common=""
-	case "$common" in
-	"") ;;
-	/*) ;;
-	*) common="$root/$common" ;;
-	esac
-	if [ -n "$common" ]; then
-		common=$(cd "$common" 2>/dev/null && pwd -P) || common=""
-	fi
-	if [ -n "$common" ] && [ "$common" != "$git_dir" ]; then
-		sec_worktree="This is a linked worktree of $(escape_value "$(dirname "$common")"); the branch below is checked out here and nowhere else."
-		repo_text=1
-	fi
+common=$(g rev-parse --git-common-dir) || common=""
+case "$common" in
+"") ;;
+/*) ;;
+*) common="$root/$common" ;;
+esac
+if [ -n "$common" ]; then
+	common=$(cd "$common" 2>/dev/null && pwd -P) || common=""
+fi
+if [ -n "$common" ] && [ "$common" != "$git_dir" ]; then
+	sec_worktree="This is a linked worktree of $(escape_value "$(dirname "$common")"); the branch below is checked out here and nowhere else."
+	repo_text=1
 fi
 
 # ---------------------------------------------------------------- halt
@@ -201,16 +208,14 @@ fi
 # This is advisory. Anything that must always hold belongs in an executable
 # check with an exit code — a harness can be started with hooks disabled, and
 # prose is complied with, not enforced.
-if [ -n "$git_dir" ]; then
-	halt=""
-	for marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply; do
-		if [ -e "$git_dir/$marker" ]; then
-			halt="${halt}${halt:+, }$marker"
-		fi
-	done
-	if [ -n "$halt" ]; then
-		sec_halt="HALT: a git operation is already in progress ($halt). Do not start work in this repository — finish or abort it first, or ask the operator."
+halt=""
+for marker in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG rebase-merge rebase-apply; do
+	if [ -e "$git_dir/$marker" ]; then
+		halt="${halt}${halt:+, }$marker"
 	fi
+done
+if [ -n "$halt" ]; then
+	sec_halt="HALT: a git operation is already in progress ($halt). Do not start work in this repository — finish or abort it first, or ask the operator."
 fi
 
 # ---------------------------------------------------------------- position
@@ -387,7 +392,7 @@ fi
 # fails completely silently: no error, no cost signal, and output that looks
 # entirely normal. Something outside the hook has to be able to notice, and an
 # empty payload is a legitimate result, so the receipt is written either way.
-if [ -n "${git_dir:-}" ] && [ -d "$git_dir" ] && mkdir -p "$git_dir/orient" 2>/dev/null; then
+if [ -d "$git_dir" ] && mkdir -p "$git_dir/orient" 2>/dev/null; then
 	printf 'ok %s %s\n' "$(printf '%s' "$payload" | wc -c | tr -d ' ')" "${source_of:-unknown}" \
 		>"$git_dir/orient/last-status" 2>/dev/null || true
 fi

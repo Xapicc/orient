@@ -141,6 +141,31 @@ check "halts on an in-progress merge" "$o" "HALT"
 check "names which operation"         "$o" "MERGE_HEAD"
 rm -f "$(git -C "$R" rev-parse --absolute-git-dir)/MERGE_HEAD"
 
+echo "a git that cannot resolve the git directory refuses"
+# The halt section, the linked-worktree line and the delivery receipt all hang
+# off one `rev-parse` flag. Emptied on failure they vanish together, with no
+# refusal and no stderr, and a repository sitting mid-merge is then described as
+# an ordinary branch — the one state this exists to interrupt for.
+# `--absolute-git-dir` is git 2.13, so an old git degrades in exactly this way.
+STUB=$WORK/stub
+mkdir -p "$STUB"
+REALGIT=$(command -v git)
+cat >"$STUB/git" <<EOF
+#!/bin/sh
+for a in "\$@"; do
+	[ "\$a" = "--absolute-git-dir" ] && { echo "unknown option" >&2; exit 129; }
+done
+exec $REALGIT "\$@"
+EOF
+chmod +x "$STUB/git"
+touch "$(git -C "$R" rev-parse --absolute-git-dir)/MERGE_HEAD"
+o=$(PATH="$STUB:$PATH" CLAUDE_PROJECT_DIR="$R" sh "$HOOK" </dev/null)
+fenced "the git-dir refusal is wrapped in exactly one fence" "$o"
+check "refuses instead of dropping the halt section" "$o" "ORIENT UNAVAILABLE"
+check "names the flag that failed"                   "$o" "absolute-git-dir"
+refute "does not describe a mid-merge repository as an ordinary branch" "$o" "ahead, "
+rm -f "$(git -C "$R" rev-parse --absolute-git-dir)/MERGE_HEAD"
+
 echo "subdirectory session"
 mkdir -p "$R/deep/nested"
 echo x >"$R/deep/nested/d.txt"
