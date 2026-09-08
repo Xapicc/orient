@@ -201,6 +201,72 @@ fenced "level-with-base payload is wrapped in exactly one fence" "$o"
 check "names the base and the fork point when level" "$o" "Level with main at"
 refute "still does not restate the branch it is on" "$o" "On main"
 
+echo "a merge-base that could not answer is not a history claim"
+# `merge-base` exits 1 when the histories are genuinely unrelated and 128 when it
+# could not read the objects it was asked about. Collapsing both to an empty fork
+# point turned a corrupt repository into a confident sentence about shared
+# history — a positive claim in the one situation where the agent most needs to
+# know something is wrong with the repository.
+CP=$WORK/corrupt
+mkdir -p "$CP" && git -C "$CP" init -q -b main
+echo a >"$CP/a.txt" && git -C "$CP" add -A && git -C "$CP" commit -qm one
+git -C "$CP" checkout -q -b feature
+echo b >"$CP/b.txt" && git -C "$CP" add -A && git -C "$CP" commit -qm two
+git -C "$CP" gc -q --aggressive --prune=now 2>/dev/null
+for p in "$CP"/.git/objects/pack/*.pack; do
+	head -c 60 "$p" >"$p.tmp" && mv "$p.tmp" "$p"
+done
+# The refs still resolve to shas; only the objects behind them are gone.
+o=$(run "$CP")
+fenced "the unreadable-store refusal is wrapped in exactly one fence" "$o"
+refute "does not call an unreadable object store disjoint history" "$o" "shares no history"
+check "refuses when the base ref does not resolve to a commit" "$o" "ORIENT UNAVAILABLE"
+
+echo "a base ref that is not a commit is skipped, not believed"
+# `git update-ref` accepts a blob and `rev-parse --verify` accepts it back, so
+# origin/main can name something that has no history to share or not share.
+BL=$WORK/blobref
+mkdir -p "$BL" && git -C "$BL" init -q -b main
+echo a >"$BL/a.txt" && git -C "$BL" add -A && git -C "$BL" commit -qm one
+blob=$(printf 'not a commit\n' | git -C "$BL" hash-object -w --stdin)
+git -C "$BL" update-ref refs/remotes/origin/main "$blob"
+o=$(run "$BL")
+fenced "the blob-base payload is wrapped in exactly one fence" "$o"
+refute "does not claim a blob shares no history with HEAD" "$o" "shares no history"
+check "falls through to a candidate that is a commit" "$o" "Level with main at"
+
+echo "a missing ancestor is not disjoint history either"
+# The case that proves the exit status alone cannot carry the decision: with the
+# shared ancestor's object gone, `merge-base` exits 1 — the same code as
+# genuinely unrelated histories — and says `error: Could not read <sha>` on
+# stderr, which `g()` throws away. Both ends of the range are readable, so the
+# candidate loop cannot catch this one first.
+MA=$WORK/missing-ancestor
+mkdir -p "$MA" && git -C "$MA" init -q -b main
+echo a >"$MA/a.txt" && git -C "$MA" add -A && git -C "$MA" commit -qm c1
+c1=$(git -C "$MA" rev-parse HEAD)
+echo b >"$MA/b.txt" && git -C "$MA" add -A && git -C "$MA" commit -qm c2
+git -C "$MA" checkout -q -b feature "$c1"
+echo c >"$MA/c.txt" && git -C "$MA" add -A && git -C "$MA" commit -qm c3
+rm -f "$MA/.git/objects/$(printf '%s' "$c1" | cut -c1-2)/$(printf '%s' "$c1" | cut -c3-)"
+o=$(run "$MA")
+fenced "the unreadable-ancestor refusal is wrapped in exactly one fence" "$o"
+refute "does not call an unreadable ancestor disjoint history" "$o" "shares no history"
+check "refuses when merge-base could not answer"  "$o" "ORIENT UNAVAILABLE"
+check "names what git actually reported"          "$o" "Could not read"
+
+echo "genuinely unrelated histories still say so"
+UR=$WORK/unrelated
+mkdir -p "$UR" && git -C "$UR" init -q -b main
+echo a >"$UR/a.txt" && git -C "$UR" add -A && git -C "$UR" commit -qm one
+OT=$WORK/unrelated-other
+mkdir -p "$OT" && git -C "$OT" init -q -b other
+echo z >"$OT/z.txt" && git -C "$OT" add -A && git -C "$OT" commit -qm zero
+git -C "$UR" fetch -q "$OT" other 2>/dev/null
+git -C "$UR" update-ref refs/remotes/origin/main "$(git -C "$OT" rev-parse other)"
+o=$(run "$UR")
+check "still names a base that truly shares no history" "$o" "shares no history"
+
 echo "linked worktree"
 # Invisible from inside the tree and absent from the CLI's context: the branch
 # is checked out here and nowhere else, and the repository everyone else means

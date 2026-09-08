@@ -234,13 +234,31 @@ else
 		sec_position="HEAD is detached at $(g rev-parse --short HEAD) — commits made here will not land on any branch."
 	fi
 
+	# A candidate has to resolve to a *commit*, not merely exist. `git update-ref`
+	# accepts a blob and `rev-parse --verify` hands it straight back, so a ref
+	# pointing at one was selected and then described as unrelated history —
+	# which a blob does not have, in either direction.
+	base_candidates="origin/HEAD origin/main origin/master main master"
 	base_ref=""
-	for candidate in origin/HEAD origin/main origin/master main master; do
-		if g rev-parse --verify -q "$candidate" >/dev/null; then
+	for candidate in $base_candidates; do
+		if g rev-parse --verify -q "$candidate^{commit}" >/dev/null; then
 			base_ref=$candidate
 			break
 		fi
 	done
+
+	# Nothing resolved. Separate "this repository has no default branch" from "it
+	# has one and git cannot read it": a truncated pack still resolves the ref to
+	# a sha and only then fails to produce the commit, and reporting that as a
+	# missing default branch is the same invented answer in a quieter voice. Only
+	# reached when the loop above found nothing, so the common path pays nothing.
+	if [ -z "$base_ref" ]; then
+		for candidate in $base_candidates; do
+			if g rev-parse --verify -q "$candidate" >/dev/null; then
+				unavailable "$candidate exists but does not resolve to a commit; this repository's object store cannot be read"
+			fi
+		done
+	fi
 
 	# origin/HEAD is a symbolic ref, and naming it as such tells the reader
 	# nothing about which branch this is measured against. Resolve it.
@@ -256,12 +274,28 @@ else
 	# repository names its own base ref here.
 	base_name=$(escape_value "$base_name")
 
+	# Every failure of `merge-base` used to arrive here as an empty `$fork`, and
+	# only one of them justifies a sentence about shared history. The exit status
+	# alone does not separate them. Measured under git 2.39.5: genuinely unrelated
+	# histories exit 1 with nothing on stderr, a blob-valued ref exits 128, and a
+	# commit whose ancestor object is missing *also* exits 1 — but prints `error:
+	# Could not read <sha>`. So the presence of stderr is the signal, and it is
+	# read only when the call failed: the common path still pays one process.
 	fork=""
-	[ -n "$base_ref" ] && { fork=$(g merge-base "$base_ref" HEAD) || fork=""; }
+	merge_status=0
+	merge_error=""
+	if [ -n "$base_ref" ]; then
+		fork=$(g merge-base "$base_ref" HEAD) || merge_status=$?
+		# Not `g`, which sends stderr to /dev/null; here stderr is the answer.
+		[ "$merge_status" -eq 0 ] ||
+			merge_error=$(git -C "$root" merge-base "$base_ref" HEAD 2>&1 >/dev/null)
+	fi
 
 	if [ -z "$base_ref" ]; then
 		sec_position="${sec_position}${sec_position:+
 }No default branch (origin/HEAD, main, master) resolves here, so there is no fork point to measure against."
+	elif [ "$merge_status" -gt 1 ] || [ -n "$merge_error" ]; then
+		unavailable "cannot compute the fork point against $base_ref: git merge-base exited $merge_status${merge_error:+ — $merge_error}"
 	elif [ -z "$fork" ]; then
 		sec_position="${sec_position}${sec_position:+
 }$base_name exists but shares no history with HEAD, so there is no fork point to measure against."
