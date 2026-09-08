@@ -186,6 +186,31 @@ fenced "capped-list payload is wrapped in exactly one fence" "$o"
 # running under acceptEdits will act on that reading.
 check "says how many, not just what fits" "$o" "files, the 12 largest"
 
+echo "a binary change is ranked, not discarded"
+# `--numstat` prints `-` for a binary file, so there is no line count to rank it
+# by. Mapped to 0 it sorted below every text change and the cap took it first, so
+# "the 12 largest" excluded exactly the entries whose size the agent cannot read
+# out of a diff, however large they are. No other fixture contains a binary file.
+BIN=$WORK/binary
+mkdir -p "$BIN" && git -C "$BIN" init -q -b main
+echo base >"$BIN/base.txt" && git -C "$BIN" add -A && git -C "$BIN" commit -qm base
+git -C "$BIN" checkout -q -b feature
+i=1
+while [ "$i" -le 13 ]; do
+	seq 1 $((100 + i)) >"$BIN/t$i.txt"
+	i=$((i + 1))
+done
+dd if=/dev/zero of="$BIN/big.bin" bs=1024 count=8 2>/dev/null
+git -C "$BIN" add -A && git -C "$BIN" commit -qm wide
+o=$(run "$BIN")
+fenced "the binary-change payload is wrapped in exactly one fence" "$o"
+check "lists the binary change at all" "$o" "big.bin"
+check "keeps the binary label"         "$o" "binary  *big.bin"
+# The header may not promise a ranking by size while an unrankable entry is in
+# the list; it says where the binaries are instead.
+refute "does not claim a ranking it cannot produce" "$o" "files, the 12 largest"
+check "says binaries come first"       "$o" "14 files, 12 shown, binary changes first"
+
 echo "a branch level with its base still reports"
 Q=$WORK/quiet
 mkdir -p "$Q" && git -C "$Q" init -q -b main

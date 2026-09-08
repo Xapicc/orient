@@ -333,22 +333,30 @@ else
 	# never touch. The stat says which files moved and how far, which is what
 	# decides where to look; opening one of them then costs one file.
 	if [ -n "$fork" ]; then
+		# `--numstat` prints `-` for both columns of a binary file: git counts no
+		# lines in it, so there is no magnitude to rank it by. Ranked at 0 it sorted
+		# below every text change that touched a single line and the cap discarded
+		# it first — so "the N largest" systematically excluded the one kind of
+		# entry whose size cannot be read out of a diff later, at any size. Unknown
+		# now sorts above known, and the header stops claiming a size ranking while
+		# an unrankable entry is in the list.
 		changed=$(
 			g diff --numstat "$fork...HEAD" |
-				awk -F'\t' '{
-					a = ($1 == "-") ? 0 : $1
-					d = ($2 == "-") ? 0 : $2
-					label = ($1 == "-") ? "binary" : "+" $1 " -" $2
-					printf "%09d\t%s\t%s\n", a + d, label, $3
+				awk -F'\t' -v unranked=999999999 '{
+					if ($1 == "-") { printf "%09d\tbinary\t%s\n", unranked, $3; next }
+					printf "%09d\t+%s -%s\t%s\n", $1 + $2, $1, $2, $3
 				}' |
 				sort -r
 		)
 		changed_n=$(printf '%s' "$changed" | grep -c . || true)
+		binary_n=$(printf '%s\n' "$changed" | awk -F'\t' '$2 == "binary" { n++ } END { print n + 0 }')
 		if [ "${changed_n:-0}" -gt 0 ]; then
-			if [ "$changed_n" -gt "$MAX_CHANGED" ]; then
-				head_line="Changed since the fork point — $changed_n files, the $MAX_CHANGED largest:"
-			else
+			if [ "$changed_n" -le "$MAX_CHANGED" ]; then
 				head_line="Changed since the fork point — $changed_n file(s):"
+			elif [ "$binary_n" -gt 0 ]; then
+				head_line="Changed since the fork point — $changed_n files, $MAX_CHANGED shown, binary changes first:"
+			else
+				head_line="Changed since the fork point — $changed_n files, the $MAX_CHANGED largest:"
 			fi
 			sec_changed="$head_line
 $(printf '%s\n' "$changed" | head -n "$MAX_CHANGED" |
