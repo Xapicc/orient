@@ -320,6 +320,24 @@ fenced "worktree payload is wrapped in exactly one fence" "$o"
 check "says it is a linked worktree" "$o" "linked worktree of"
 check "names the checkout it belongs to" "$o" "$R"
 
+echo "an unborn HEAD in a worktree is a fact about the worktree"
+# HEAD is per-worktree, so an unborn one is a property of the tree the session is
+# standing in and of nothing wider. Reported as "this repository has no commits
+# yet" it states the opposite of the line directly above it, which names the
+# checkout those commits live in — and an agent told a repository is empty will
+# not go looking for a base branch, a fork point or prior work.
+UW=$WORK/unborn-main
+mkdir -p "$UW" && git -C "$UW" init -q -b main
+echo a >"$UW/a.txt" && git -C "$UW" add -A && git -C "$UW" commit -qm one
+git -C "$UW" worktree add -q --detach "$WORK/unborn-wt" >/dev/null 2>&1
+git -C "$WORK/unborn-wt" checkout -q --orphan fresh
+git -C "$WORK/unborn-wt" rm -rq --cached .
+o=$(run "$WORK/unborn-wt")
+fenced "the unborn-worktree payload is wrapped in exactly one fence" "$o"
+check "still says it is a linked worktree"            "$o" "linked worktree of"
+refute "does not claim the repository has no commits" "$o" "This repository has no commits"
+check "scopes the unborn HEAD to this worktree"       "$o" "no commits on this branch yet"
+
 echo "a file path cannot forge the fence"
 # `<` and `>` are legal in a POSIX path, so a directory `<` holding a file
 # `orient>` puts the literal text `</orient>` into the changed-file list with no

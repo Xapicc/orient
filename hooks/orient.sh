@@ -225,7 +225,16 @@ fi
 # "HEAD" to stdout *and* exits non-zero, so a pipeline that checks only output
 # reports a branch named HEAD.
 if ! g rev-parse --verify -q HEAD >/dev/null; then
-	sec_position="This repository has no commits yet (unborn HEAD). Nothing to compare against."
+	# HEAD is per-worktree, so what was measured is this tree and nothing wider.
+	# In a linked worktree the repository-wide wording contradicts the line
+	# directly above it, which names the checkout the commits live in — and the
+	# fix is to narrow the claim to what was measured, not to widen the
+	# measurement by going and asking the other checkout.
+	if [ -n "$sec_worktree" ]; then
+		sec_position="This worktree's HEAD is unborn (no commits on this branch yet). Nothing to compare against."
+	else
+		sec_position="This repository has no commits yet (unborn HEAD). Nothing to compare against."
+	fi
 else
 	[ "$(g rev-parse --is-shallow-repository)" = "true" ] &&
 		sec_shallow="This is a shallow clone; history-derived answers above are cut off at the graft point."
