@@ -4,5 +4,7 @@
   "description": "Hands a fresh session the three things git knows and the session is not told: an in-progress git operation, position against the fork point, and which files moved since. Requires git 2.15 or newer; below that it refuses in-band rather than reporting a repository it could not read.",
   "author": {
     "name": "Hendrik Kühnel"
-  }
+  },
+  "repository": "https://github.com/Xapicc/orient",
+  "license": "MIT"
 }
