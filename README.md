@@ -1,22 +1,57 @@
-# orient
+<p align="center">
+  <img src=".claude-plugin/icon.svg" width="96" height="96" alt="orient: three commits on a base lane, with a branch forking off the middle one">
+</p>
+
+<h1 align="center">orient</h1>
+
+<p align="center">
+  <strong>What git already knows, handed to a fresh Claude Code session before its first turn.</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-bb91ff"></a>
+  <img alt="Requires git 2.15 or newer" src="https://img.shields.io/badge/git-2.15%2B-bb91ff">
+  <img alt="POSIX sh" src="https://img.shields.io/badge/shell-POSIX%20sh-bb91ff">
+  <img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-bb91ff">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#what-it-emits">What it emits</a> ·
+  <a href="#why-it-is-capped">Why it is capped</a> ·
+  <a href="#failure-behaviour">Failure behaviour</a> ·
+  <a href="https://it-kuehnel.com/orient">Website</a>
+</p>
+
+---
 
 A `SessionStart` hook that hands a fresh Claude Code session the three things
-git knows and the session is not told: whether a git operation is already in
-progress, where the branch sits against its fork point, and which files moved
-since. Pure `git` and POSIX `sh`. No index, no daemon, no network, nothing
-written into the repository you are working in.
+git knows and the session is not told:
+
+- **An operation already in progress** — a merge, rebase, cherry-pick, revert or
+  bisect that is half done.
+- **Where the branch sits** — ahead and behind its base, and the fork point
+  between them.
+- **Which files moved** — everything changed since the fork point, largest
+  first.
+
+Pure `git` and POSIX `sh`. No index, no daemon, no network, nothing written to
+your working tree.
 
 Install it once at user scope and every repository you open afterwards starts
 warm, including ones you cloned five minutes ago and do not own.
 
-Needs git 2.15 or newer: `--is-shallow-repository` sets that floor,
-`--absolute-git-dir` needs 2.13 and `--git-common-dir` 2.5. On anything older
-the hook refuses in-band rather than describing a repository it could not read.
-
 ## Install
 
 The repository is its own single-plugin marketplace, so installing it is two
-commands and no publishing step. From a clone anywhere on disk:
+commands and no publishing step:
+
+```sh
+claude plugin marketplace add Xapicc/orient
+claude plugin install orient@orient
+```
+
+Or from a clone anywhere on disk, if you want a working copy to read or patch:
 
 ```sh
 git clone https://github.com/Xapicc/orient.git ~/.local/share/orient
@@ -24,16 +59,11 @@ claude plugin marketplace add ~/.local/share/orient
 claude plugin install orient@orient
 ```
 
-Or straight from GitHub, without keeping a working copy:
+Both forms are verified end to end.
 
-```sh
-claude plugin marketplace add Xapicc/orient
-claude plugin install orient@orient
-```
-
-The local-path form above is verified end to end. The `Xapicc/orient` shorthand
-is the documented GitHub form but is untested here, because this repository has
-no remote yet.
+**Requires git 2.15 or newer.** `--is-shallow-repository` sets that floor,
+`--absolute-git-dir` needs 2.13 and `--git-common-dir` 2.5. On anything older
+the hook refuses in-band rather than describing a repository it could not read.
 
 Both install at **user scope**: the hook then runs at the start of every Claude
 Code session on the machine, in every repository, with no per-project setup and
@@ -56,7 +86,7 @@ A hook that never runs fails silently: no error, no cost signal, normal-looking
 output. Two ways to check, in increasing strength.
 
 ```sh
-# 1. Did the hook run in this repository? Written on every run, payload or not.
+# 1. Did the hook run in this repository? Written whenever it runs to the end.
 cat "$(git rev-parse --absolute-git-dir)/orient/last-status"     # ok 391 startup
 
 # 2. Did the payload reach the model? Answerable only from what orient supplies.
@@ -65,8 +95,9 @@ is this repo, and is a git operation in progress? Say NOT TOLD if you were not t
 ```
 
 A receipt reading `ok 0 startup` means the hook ran and had nothing to say,
-which is a different fault from it not running at all — only the missing file
-means the latter.
+which is a different fault from it not running at all. No file at all means it
+never ran to the end in this repository: it did not run, it refused in-band
+(the refusal is then the payload), or every session here was a resume.
 
 ### Trying it without installing
 
@@ -90,7 +121,7 @@ review; `rm -rf "$(git rev-parse --absolute-git-dir)/orient"` clears one repo's.
 
 ## What it emits
 
-```
+```text
 <orient>
 HALT: a git operation is already in progress (MERGE_HEAD). Do not start work in
 this repository — finish or abort it first, or ask the operator.
@@ -144,31 +175,33 @@ the budget rather than competing with the repository text they are about.
 Observed output is 0 bytes on a clean checkout and 519 on a branch with 30
 changed files.
 
-**These are arithmetic over published rates, not a benchmark.** Nothing here was
-A/B tested against a task set. The honest claim is latency and cost *variance*,
-not correctness — expect the agent to start a little sooner, not to get smarter.
+> [!NOTE]
+> These are arithmetic over published rates, not a benchmark. Nothing here was
+> A/B tested against a task set. The honest claim is latency and cost
+> *variance*, not correctness — expect the agent to start a little sooner, not
+> to get smarter.
 
 ## Failure behaviour
 
 Every section either computes or refuses in-band, because a section that
 silently shrinks reads to the agent as a complete answer.
 
-| situation | behaviour |
+| Situation | Behaviour |
 |---|---|
-| not a git repo, or git absent | `ORIENT UNAVAILABLE`, naming the cause, plus "do not assume the repository is clean or idle" |
+| Not a git repo, or git absent | `ORIENT UNAVAILABLE`, naming the cause, plus "do not assume the repository is clean or idle" |
 | git older than 2.15 | `ORIENT UNAVAILABLE`, naming the `rev-parse` flag that failed — never a payload with the halt section quietly missing |
-| no commits yet | says so; never reports a branch named `HEAD` |
-| detached HEAD | says so, and that commits will not land on a branch |
-| shallow clone | says history-derived answers are cut off |
-| no resolvable default branch | position section omitted *with a reason line* |
-| more than 12 changed files | shows the 12 largest **and the total count** |
-| over the byte cap | `TRUNCATED: N further line(s) omitted` |
+| No commits yet | Says so; never reports a branch named `HEAD` |
+| Detached HEAD | Says so, and that commits will not land on a branch |
+| Shallow clone | Says history-derived answers are cut off |
+| No resolvable default branch | Position section omitted *with a reason line* |
+| More than 12 changed files | Shows the 12 largest **and the total count** |
+| Over the byte cap | `TRUNCATED: N further line(s) omitted` |
 
 The one failure it cannot report on its own: a harness started with hooks
 disabled, or pointed at a `--plugin-dir` that does not exist, runs with no
-payload, no error and entirely normal-looking output. So the hook writes a
-receipt to `$(git rev-parse --absolute-git-dir)/orient/last-status` on every
-run, for something outside the hook to assert on. Nothing in the payload is
+payload, no error and entirely normal-looking output. So every run that gets to
+the end writes a receipt to `$(git rev-parse --absolute-git-dir)/orient/last-status`,
+for something outside the hook to assert on. Nothing in the payload is
 load-bearing for correctness or safety — anything that must always hold belongs
 in an executable check with an exit code, not in prose a harness might not
 deliver.
@@ -187,11 +220,16 @@ deliver.
 
 ## Tests
 
-```
+```sh
 sh test/run-tests.sh
 ```
 
-24 assertions over the paths that fail silently: no repo, unborn HEAD, detached
+The suite covers the paths that fail silently: no repo, unborn HEAD, detached
 HEAD, mid-merge, linked worktrees, a branch level with its base, subdirectory
-sessions, capped lists, the resume gate, the byte budget, and the absence of the
-three sections the CLI already supplies.
+sessions, capped lists and binary changes under the cap, an unreadable object
+store, hostile branch and path names, the resume gate, the byte budget, and the
+absence of the three sections the CLI already supplies.
+
+## License
+
+[MIT](LICENSE) © Hendrik Kühnel

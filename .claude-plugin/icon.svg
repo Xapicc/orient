@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- The portfolio's orient mark (PortfolioWeb app/orient/icon.svg), unchanged
+       on its 32-unit grid and scaled 4x: the plugin directory wants a square
+       icon of at least 128px, and an integer factor keeps every edge on a pixel.
+       Three commits on the base lane, a stem rising from the middle one, and
+       the branch's one commit on its rail. -->
+  <g transform="scale(4)">
+    <rect width="32" height="32" fill="#0a0a0b"/>
+    <g fill="#bb91ff">
+      <rect x="1" y="19" width="8" height="8"/>
+      <rect x="12" y="19" width="8" height="8"/>
+      <rect x="23" y="19" width="8" height="8"/>
+      <rect x="9" y="22" width="3" height="2"/>
+      <rect x="20" y="22" width="3" height="2"/>
+      <rect x="15" y="8" width="2" height="11"/>
+      <rect x="15" y="8" width="8" height="2"/>
+      <rect x="23" y="5" width="8" height="8"/>
+    </g>
+  </g>
+</svg>
